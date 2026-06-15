@@ -39,9 +39,49 @@ def _interpret_d(d):
         return "large"
 
 
+def _compute_ecdf_data(sample1, sample2, d_stat):
+    """
+    Compute empirical CDF data for both samples on a common x grid.
+
+    Returns
+    -------
+    dict
+        {
+            "x": list of x-axis values (sorted unique combined data)
+            "sample1_cdf": list of CDF values for sample1 at each x
+            "sample2_cdf": list of CDF values for sample2 at each x
+            "d_max_point": {"x", "cdf1", "cdf2", "diff"} where |cdf1-cdf2| == D
+        }
+    """
+    s1 = np.sort(sample1)
+    s2 = np.sort(sample2)
+    n1 = len(s1)
+    n2 = len(s2)
+
+    x = np.unique(np.concatenate([s1, s2]))
+
+    cdf1 = np.searchsorted(s1, x, side='right') / n1
+    cdf2 = np.searchsorted(s2, x, side='right') / n2
+
+    diffs = np.abs(cdf1 - cdf2)
+    max_idx = np.argmax(diffs)
+
+    return {
+        "x": x.tolist(),
+        "sample1_cdf": cdf1.tolist(),
+        "sample2_cdf": cdf2.tolist(),
+        "d_max_point": {
+            "x": float(x[max_idx]),
+            "cdf1": float(cdf1[max_idx]),
+            "cdf2": float(cdf2[max_idx]),
+            "diff": float(diffs[max_idx])
+        }
+    }
+
+
 def ks_two_sample(sample1, sample2):
     """
-    Perform the two-sample Kolmogorov-Smirnov test with effect size.
+    Perform the two-sample Kolmogorov-Smirnov test with effect size and CDF data.
 
     Parameters
     ----------
@@ -62,6 +102,17 @@ def ks_two_sample(sample1, sample2):
                 "D": float,             # KS D statistic (also effect size)
                 "D_magnitude": str,     # qualitative magnitude of D
                 "VarghaDelaney_A": float  # probability of superiority
+            },
+            "cdf_data": {
+                "x": list[float],       # common x-axis values
+                "sample1_cdf": list[float],  # CDF of sample1 at each x
+                "sample2_cdf": list[float],  # CDF of sample2 at each x
+                "d_max_point": {        # where D occurs
+                    "x": float,
+                    "cdf1": float,
+                    "cdf2": float,
+                    "diff": float
+                }
             }
         }
 
@@ -85,6 +136,7 @@ def ks_two_sample(sample1, sample2):
 
     d_stat, p_val = stats.ks_2samp(sample1, sample2)
     vda = _vargha_delaney_a(sample1, sample2)
+    ecdf_data = _compute_ecdf_data(sample1, sample2, d_stat)
 
     return {
         "D": float(d_stat),
@@ -95,7 +147,8 @@ def ks_two_sample(sample1, sample2):
             "D": float(d_stat),
             "D_magnitude": _interpret_d(d_stat),
             "VarghaDelaney_A": float(vda)
-        }
+        },
+        "cdf_data": ecdf_data
     }
 
 
@@ -111,6 +164,9 @@ if __name__ == "__main__":
     print(f"  D={result_same['D']:.6f}, p={result_same['p_value']:.6f}")
     print(f"  effect size: D_magnitude={result_same['effect_size']['D_magnitude']}, "
           f"Vargha-Delaney A={result_same['effect_size']['VarghaDelaney_A']:.4f}")
+    dmp = result_same['cdf_data']['d_max_point']
+    print(f"  CDF data: {len(result_same['cdf_data']['x'])} points, "
+          f"D at x={dmp['x']:.4f}, |cdf1-cdf2|={dmp['diff']:.6f}")
     print()
 
     result_diff = ks_two_sample(a, c)
@@ -118,6 +174,9 @@ if __name__ == "__main__":
     print(f"  D={result_diff['D']:.6f}, p={result_diff['p_value']:.6f}")
     print(f"  effect size: D_magnitude={result_diff['effect_size']['D_magnitude']}, "
           f"Vargha-Delaney A={result_diff['effect_size']['VarghaDelaney_A']:.4f}")
+    dmp = result_diff['cdf_data']['d_max_point']
+    print(f"  CDF data: {len(result_diff['cdf_data']['x'])} points, "
+          f"D at x={dmp['x']:.4f}, cdf1={dmp['cdf1']:.4f}, cdf2={dmp['cdf2']:.4f}")
     print()
 
     big_a = np.random.normal(loc=0, scale=1, size=100000)
@@ -127,5 +186,8 @@ if __name__ == "__main__":
     print(f"  D={result_big['D']:.6f}, p={result_big['p_value']:.6e}")
     print(f"  effect size: D_magnitude={result_big['effect_size']['D_magnitude']}, "
           f"Vargha-Delaney A={result_big['effect_size']['VarghaDelaney_A']:.4f}")
+    dmp = result_big['cdf_data']['d_max_point']
+    print(f"  CDF data: {len(result_big['cdf_data']['x'])} points, "
+          f"D at x={dmp['x']:.4f}, |cdf1-cdf2|={dmp['diff']:.6f}")
     print("  -> p-value is tiny but effect size is negligible: "
           "statistically significant, practically irrelevant.")
